@@ -16,7 +16,7 @@ type Chore = { id: string; name: string; assigned_to_id: string | null; is_done:
 type ShoppingItem = { id: string; name: string; added_by_id: string | null; is_done: boolean; created_at: string; image_url: string | null }
 type CorseTask = { id: string; name: string; category: 'ouvrir' | 'fermer'; is_done: boolean; sort_order: number }
 type FamilyEvent = { id: string; title: string; member_id: string; start_date: string; end_date: string; created_at: string }
-type TabId = 'presence' | 'corvees' | 'courses' | 'agenda' | 'corse' | 'poubelles'
+type TabId = 'presence' | 'agenda' | 'courses' | 'corvees' | 'poubelles' | 'corse'
 
 // ── Colors ─────────────────────────────────────────────
 const C = {
@@ -40,25 +40,78 @@ function getMemberColor(members: Member[], memberId: string) {
 
 function toDateStr(d: Date) { return d.toISOString().split('T')[0] }
 function todayStr() { return toDateStr(new Date()) }
-
 function addDays(dateStr: string, n: number) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + n)
-  return toDateStr(d)
+  const d = new Date(dateStr + 'T12:00:00'); d.setDate(d.getDate() + n); return toDateStr(d)
 }
-
-function formatDay(dateStr: string, opts?: { short?: boolean }) {
+function formatDay(dateStr: string, short = false) {
   const d = new Date(dateStr + 'T12:00:00')
-  const days = opts?.short
-    ? ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam']
-    : ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi']
+  const days = short ? ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'] : ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi']
   const months = ['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc']
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`
 }
-
 function formatMonthYear(year: number, month: number) {
-  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-  return `${months[month]} ${year}`
+  return ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][month] + ' ' + year
+}
+
+// ── Corse Section (defined at module level to avoid re-mount on keystroke) ──
+function CorseSection({ tasks, category, title, color, onToggle, onAdd, onDelete, onReset }: {
+  tasks: CorseTask[]; category: 'ouvrir' | 'fermer'; title: string; color: string
+  onToggle: (t: CorseTask) => void; onAdd: (n: string, c: 'ouvrir' | 'fermer') => void
+  onDelete: (t: CorseTask) => void; onReset: (c: 'ouvrir' | 'fermer') => void
+}) {
+  const [newVal, setNewVal] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const done = tasks.filter(t => t.is_done).length
+  const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
+
+  function handleAdd() {
+    if (!newVal.trim()) return
+    onAdd(newVal.trim(), category)
+    setNewVal('')
+    // Keep focus on input after adding
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  return (
+    <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color }}>{title}</div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.muted, marginBottom: 4 }}>
+          <span>{done}/{tasks.length} faits</span><span>{pct}%</span>
+        </div>
+        <div style={{ background: C.border, borderRadius: 4, height: 6 }}>
+          <div style={{ background: pct === 100 ? C.green : C.primary, width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
+        </div>
+      </div>
+      {tasks.map(task => (
+        <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
+          <button onClick={() => onToggle(task)} style={{
+            width: 26, height: 26, borderRadius: 6, flexShrink: 0,
+            border: `2px solid ${task.is_done ? C.green : C.border}`,
+            background: task.is_done ? C.green : 'none', color: 'white', cursor: 'pointer', fontSize: 14,
+          }}>{task.is_done ? '✓' : ''}</button>
+          <div style={{ flex: 1, textDecoration: task.is_done ? 'line-through' : 'none', color: task.is_done ? C.muted : C.text }}>{task.name}</div>
+          <button onClick={() => onDelete(task)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <input
+          ref={inputRef}
+          value={newVal}
+          onChange={e => setNewVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+          placeholder="Ajouter une tâche…"
+          style={{ flex: 1, padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }}
+        />
+        <button onClick={handleAdd} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 18 }}>+</button>
+      </div>
+      {tasks.some(t => t.is_done) && (
+        <button onClick={() => onReset(category)} style={{ width: '100%', marginTop: 8, background: 'none', border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px', color: C.muted, fontSize: 13, cursor: 'pointer' }}>
+          🔄 Réinitialiser
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ── Main App ───────────────────────────────────────────
@@ -78,15 +131,13 @@ export default function Home() {
     const saved = localStorage.getItem('giros_member_id')
     if (saved) {
       supabase.from('members').select('*').eq('id', saved).single().then(({ data }) => {
-        if (data) setCurrentMember(data)
-        else setShowIdentity(true)
+        if (data) setCurrentMember(data); else setShowIdentity(true)
       })
-    } else { setShowIdentity(true) }
+    } else setShowIdentity(true)
   }, [])
 
   function loadDinnerResponses() {
-    const start = todayStr()
-    const end = addDays(start, 13)
+    const start = todayStr(); const end = addDays(start, 13)
     supabase.from('dinner_responses').select('*').gte('date', start).lte('date', end)
       .then(({ data }) => data && setDinnerResponses(data))
   }
@@ -122,10 +173,7 @@ export default function Home() {
     const newVal = !member.is_active
     setMembers(prev => prev.map(m => m.id === member.id ? { ...m, is_active: newVal } : m))
     const { error } = await supabase.from('members').update({ is_active: newVal }).eq('id', member.id)
-    if (error) {
-      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, is_active: member.is_active } : m))
-      alert('Erreur : ' + error.message)
-    }
+    if (error) { setMembers(prev => prev.map(m => m.id === member.id ? { ...m, is_active: member.is_active } : m)); alert('Erreur : ' + error.message) }
   }
 
   // ── Dinner ─────────────────────────────────────────────
@@ -133,16 +181,14 @@ export default function Home() {
     if (!currentMember) return
     const existing = dinnerResponses.find(r => r.member_id === currentMember.id && r.date === date)
     if (existing) {
-      setDinnerResponses(prev => prev.map(r => r.id === existing.id ? { ...r, status, arrival_time: arrivalTime || null } : r))
-      const { error } = await supabase.from('dinner_responses').update({ status, arrival_time: arrivalTime || null }).eq('id', existing.id)
+      setDinnerResponses(prev => prev.map(r => r.id === existing.id ? { ...r, status, arrival_time: arrivalTime ?? null } : r))
+      const { error } = await supabase.from('dinner_responses').update({ status, arrival_time: arrivalTime ?? null }).eq('id', existing.id)
       if (error) setDinnerResponses(prev => prev.map(r => r.id === existing.id ? existing : r))
     } else {
       const tempId = 'temp-' + Date.now()
-      const newResp: DinnerResponse = { id: tempId, member_id: currentMember.id, date, status, arrival_time: arrivalTime || null }
+      const newResp: DinnerResponse = { id: tempId, member_id: currentMember.id, date, status, arrival_time: arrivalTime ?? null }
       setDinnerResponses(prev => [...prev, newResp])
-      const { data, error } = await supabase.from('dinner_responses')
-        .insert({ member_id: currentMember.id, date, status, arrival_time: arrivalTime || null })
-        .select().single()
+      const { data, error } = await supabase.from('dinner_responses').insert({ member_id: currentMember.id, date, status, arrival_time: arrivalTime ?? null }).select().single()
       if (error) setDinnerResponses(prev => prev.filter(r => r.id !== tempId))
       else if (data) setDinnerResponses(prev => prev.map(r => r.id === tempId ? data : r))
     }
@@ -203,8 +249,7 @@ export default function Home() {
   async function onAddPhoto(base64: string) {
     if (!currentMember) return
     try {
-      const res = await fetch(base64)
-      const blob = await res.blob()
+      const res = await fetch(base64); const blob = await res.blob()
       const fileName = `liste-${Date.now()}.jpg`
       const { error: uploadError } = await supabase.storage.from('shopping-photos').upload(fileName, blob, { contentType: 'image/jpeg' })
       if (uploadError) throw uploadError
@@ -284,16 +329,16 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — ordre : présence, agenda, courses, tâches, poubelles, corse */}
       <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 62, zIndex: 99, overflowX: 'auto' }}>
         <div style={{ display: 'flex', maxWidth: 480, margin: '0 auto' }}>
           {([
-            { id: 'presence', label: '🍽️ Présence' },
-            { id: 'corvees', label: '🧹 Tâches' },
-            { id: 'courses', label: '🛒 Courses' },
-            { id: 'agenda', label: '📅 Agenda' },
-            { id: 'corse', label: '🏝️ Corse' },
+            { id: 'presence',  label: '🍽️ Présence' },
+            { id: 'agenda',    label: '📅 Agenda' },
+            { id: 'courses',   label: '🛒 Courses' },
+            { id: 'corvees',   label: '🧹 Tâches' },
             { id: 'poubelles', label: '🗑️ Poubelles' },
+            { id: 'corse',     label: '🏝️ Corse' },
           ] as { id: TabId; label: string }[]).map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               flex: '0 0 auto', padding: '12px 10px', border: 'none', background: 'none',
@@ -308,21 +353,12 @@ export default function Home() {
 
       {/* Content */}
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px' }}>
-        {activeTab === 'presence' && (
-          <PresenceTab
-            members={members.filter(m => m.is_active)}
-            allMembers={members}
-            dinnerResponses={dinnerResponses}
-            familyEvents={familyEvents}
-            currentMember={currentMember}
-            onSetStatus={setDinnerStatus}
-          />
-        )}
-        {activeTab === 'corvees' && <CorveesTab members={members} chores={chores} currentMember={currentMember} onAdd={addChore} onClaim={claimChore} onUnclaim={unclaimChore} onDone={doneChore} onDelete={deleteChore} />}
-        {activeTab === 'courses' && <CoursesTab members={members} items={shoppingItems} currentMember={currentMember} onAdd={addShoppingItem} onToggle={toggleShoppingItem} onDelete={deleteShoppingItem} onAddPhoto={onAddPhoto} />}
-        {activeTab === 'agenda' && <AgendaTab members={members} events={familyEvents} currentMember={currentMember} onAdd={addFamilyEvent} onDelete={deleteFamilyEvent} />}
-        {activeTab === 'corse' && <CorseTab tasks={corseTasks} onToggle={toggleCorseTask} onAdd={addCorseTask} onDelete={deleteCorseTask} onReset={resetCorse} />}
+        {activeTab === 'presence'  && <PresenceTab members={members.filter(m => m.is_active)} allMembers={members} dinnerResponses={dinnerResponses} familyEvents={familyEvents} currentMember={currentMember} onSetStatus={setDinnerStatus} />}
+        {activeTab === 'agenda'    && <AgendaTab members={members} events={familyEvents} currentMember={currentMember} onAdd={addFamilyEvent} onDelete={deleteFamilyEvent} />}
+        {activeTab === 'courses'   && <CoursesTab members={members} items={shoppingItems} currentMember={currentMember} onAdd={addShoppingItem} onToggle={toggleShoppingItem} onDelete={deleteShoppingItem} onAddPhoto={onAddPhoto} />}
+        {activeTab === 'corvees'   && <CorveesTab members={members} chores={chores} currentMember={currentMember} onAdd={addChore} onClaim={claimChore} onUnclaim={unclaimChore} onDone={doneChore} onDelete={deleteChore} />}
         {activeTab === 'poubelles' && <PoubellsTab />}
+        {activeTab === 'corse'     && <CorseTab tasks={corseTasks} onToggle={toggleCorseTask} onAdd={addCorseTask} onDelete={deleteCorseTask} onReset={resetCorse} />}
       </div>
 
       {showMembers && <MembersModal members={members} onToggle={toggleMemberActive} onClose={() => setShowMembers(false)} />}
@@ -379,7 +415,7 @@ function MembersModal({ members, onToggle, onClose }: { members: Member[]; onTog
   )
 }
 
-// ── Présence Tab (2 semaines) ──────────────────────────
+// ── Présence Tab ───────────────────────────────────────
 function PresenceTab({ members, allMembers, dinnerResponses, familyEvents, currentMember, onSetStatus }: {
   members: Member[]; allMembers: Member[]
   dinnerResponses: DinnerResponse[]; familyEvents: FamilyEvent[]
@@ -388,12 +424,8 @@ function PresenceTab({ members, allMembers, dinnerResponses, familyEvents, curre
 }) {
   const days = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i))
   const today = todayStr()
-
-  // Who's away today from family events
   const awayToday = familyEvents.filter(e => e.start_date <= today && e.end_date >= today)
   const getName = (id: string) => allMembers.find(m => m.id === id)?.name || '?'
-
-  // Tonight's dinner summary
   const todayResponses = dinnerResponses.filter(r => r.date === today)
   const comingTonight = todayResponses.filter(r => r.status === 'oui' || r.status === 'assiette').length
 
@@ -402,75 +434,118 @@ function PresenceTab({ members, allMembers, dinnerResponses, familyEvents, curre
       {/* Summary card */}
       <div style={{ background: C.primary, borderRadius: 16, padding: 16, color: 'white' }}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>📋 Ce soir</div>
-        <div style={{ fontSize: 14, marginBottom: 6 }}>
+        <div style={{ fontSize: 14, marginBottom: awayToday.length > 0 ? 6 : 0 }}>
           🍽️ <strong>{comingTonight}</strong> personne{comingTonight !== 1 ? 's' : ''} à dîner
           {todayResponses.filter(r => r.status === 'oui').map(r => (
-            <span key={r.id} style={{ marginLeft: 6, opacity: 0.85 }}>
+            <span key={r.id} style={{ marginLeft: 6, opacity: 0.85, fontSize: 13 }}>
               {getName(r.member_id)}{r.arrival_time ? ` (${r.arrival_time})` : ''}
             </span>
           ))}
         </div>
         {awayToday.length > 0 && (
           <div style={{ fontSize: 13, opacity: 0.85 }}>
-            ✈️ En voyage : {awayToday.map(e => `${getName(e.member_id)} (${e.title})`).join(', ')}
+            ✈️ En voyage : {awayToday.map(e => `${getName(e.member_id)} — ${e.title}`).join(' · ')}
           </div>
         )}
         {todayResponses.filter(r => r.status === 'assiette').length > 0 && (
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
-            🍽️ Assiette à garder : {todayResponses.filter(r => r.status === 'assiette').map(r => getName(r.member_id)).join(', ')}
+            🍽️ Assiette : {todayResponses.filter(r => r.status === 'assiette').map(r => getName(r.member_id) + (r.arrival_time ? ` (${r.arrival_time})` : '')).join(', ')}
           </div>
         )}
       </div>
 
       {/* 14 days */}
-      {days.map(dateStr => {
-        const isToday = dateStr === today
-        const myResp = currentMember ? dinnerResponses.find(r => r.member_id === currentMember.id && r.date === dateStr) : null
-        const othersResp = dinnerResponses.filter(r => r.date === dateStr && r.member_id !== currentMember?.id)
+      {days.map(dateStr => (
+        <DayCard
+          key={dateStr}
+          dateStr={dateStr}
+          isToday={dateStr === today}
+          members={members}
+          allMembers={allMembers}
+          dinnerResponses={dinnerResponses}
+          currentMember={currentMember}
+          onSetStatus={onSetStatus}
+        />
+      ))}
+    </div>
+  )
+}
 
-        return (
-          <div key={dateStr} style={{ background: C.card, borderRadius: 16, padding: 16, border: `${isToday ? 2 : 1}px solid ${isToday ? C.primary : C.border}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              {isToday && <span style={{ background: C.primary, color: 'white', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Aujourd'hui</span>}
-              <div style={{ fontWeight: 700, fontSize: 15, color: isToday ? C.primary : C.text }}>{formatDay(dateStr)}</div>
-            </div>
+// ── Day Card (stable component, not inline) ────────────
+function DayCard({ dateStr, isToday, members, allMembers, dinnerResponses, currentMember, onSetStatus }: {
+  dateStr: string; isToday: boolean; members: Member[]; allMembers: Member[]
+  dinnerResponses: DinnerResponse[]; currentMember: Member | null
+  onSetStatus: (date: string, s: DinnerStatus, t?: string) => void
+}) {
+  const myResp = currentMember ? dinnerResponses.find(r => r.member_id === currentMember.id && r.date === dateStr) : null
+  const othersResp = dinnerResponses.filter(r => r.date === dateStr && r.member_id !== currentMember?.id)
+  const getName = (id: string) => allMembers.find(m => m.id === id)?.name || '?'
 
-            {/* My status buttons */}
-            {currentMember && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: othersResp.length > 0 ? 10 : 0, flexWrap: 'wrap' }}>
-                {([
-                  { s: 'oui' as DinnerStatus, label: '✓ Présent·e', bg: C.greenLight, color: C.green },
-                  { s: 'non' as DinnerStatus, label: '✗ Absent·e', bg: C.redLight, color: C.red },
-                  { s: 'assiette' as DinnerStatus, label: '🍽️ Assiette', bg: C.orangeLight, color: C.orange },
-                ]).map(opt => (
-                  <button key={opt.s} onClick={() => onSetStatus(dateStr, opt.s)}
-                    style={{
-                      background: myResp?.status === opt.s ? opt.color : opt.bg,
-                      color: myResp?.status === opt.s ? 'white' : opt.color,
-                      border: 'none', borderRadius: 8, padding: '7px 11px',
-                      fontWeight: 600, fontSize: 12, cursor: 'pointer',
-                    }}>{opt.label}</button>
-                ))}
-              </div>
-            )}
+  // Local time state — initialise from existing response, stays in sync
+  const [localTime, setLocalTime] = useState(myResp?.arrival_time || '')
 
-            {/* Others' responses */}
-            {othersResp.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {othersResp.map(r => {
-                  const color = r.status === 'oui' ? C.green : r.status === 'non' ? C.red : C.orange
-                  const icon = r.status === 'oui' ? '✓' : r.status === 'non' ? '✗' : '🍽️'
-                  return (
-                    <span key={r.id} style={{ background: color + '20', color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                      {icon} {getName(r.member_id)}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
+  // When myResp changes (other device update), sync
+  useEffect(() => { setLocalTime(myResp?.arrival_time || '') }, [myResp?.arrival_time])
+
+  function handleStatusClick(status: DinnerStatus) {
+    onSetStatus(dateStr, status, localTime || undefined)
+  }
+
+  function handleTimeBlur() {
+    if (myResp) onSetStatus(dateStr, myResp.status, localTime || undefined)
+  }
+
+  return (
+    <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `${isToday ? 2 : 1}px solid ${isToday ? C.primary : C.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        {isToday && <span style={{ background: C.primary, color: 'white', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Aujourd'hui</span>}
+        <div style={{ fontWeight: 700, fontSize: 15, color: isToday ? C.primary : C.text }}>{formatDay(dateStr)}</div>
+      </div>
+
+      {currentMember && (
+        <div style={{ marginBottom: othersResp.length > 0 ? 10 : 0 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {([
+              { s: 'oui' as DinnerStatus, label: '✓ Présent·e', bg: C.greenLight, color: C.green },
+              { s: 'non' as DinnerStatus, label: '✗ Absent·e', bg: C.redLight, color: C.red },
+              { s: 'assiette' as DinnerStatus, label: '🍽️ Assiette', bg: C.orangeLight, color: C.orange },
+            ]).map(opt => (
+              <button key={opt.s} onClick={() => handleStatusClick(opt.s)} style={{
+                background: myResp?.status === opt.s ? opt.color : opt.bg,
+                color: myResp?.status === opt.s ? 'white' : opt.color,
+                border: 'none', borderRadius: 8, padding: '7px 11px', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              }}>{opt.label}</button>
+            ))}
           </div>
-        )
-      })}
+          {/* Arrival time — only shown when coming */}
+          {myResp && myResp.status !== 'non' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: C.muted }}>🕐 Arrivée vers</span>
+              <input
+                type="time"
+                value={localTime}
+                onChange={e => setLocalTime(e.target.value)}
+                onBlur={handleTimeBlur}
+                style={{ padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, color: C.text, width: 100 }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {othersResp.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+          {othersResp.map(r => {
+            const color = r.status === 'oui' ? C.green : r.status === 'non' ? C.red : C.orange
+            const icon = r.status === 'oui' ? '✓' : r.status === 'non' ? '✗' : '🍽️'
+            return (
+              <span key={r.id} style={{ background: color + '22', color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                {icon} {getName(r.member_id)}{r.arrival_time ? ` · ${r.arrival_time}` : ''}
+              </span>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -485,6 +560,7 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [showForm, setShowForm] = useState(false)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [form, setForm] = useState({ title: '', memberId: currentMember?.id || '', start: todayStr(), end: todayStr() })
 
   useEffect(() => { if (currentMember) setForm(f => ({ ...f, memberId: currentMember.id })) }, [currentMember])
@@ -492,11 +568,9 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
   function prevMonth() { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) } else setViewMonth(m => m - 1) }
   function nextMonth() { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0) } else setViewMonth(m => m + 1) }
 
-  // Build calendar grid
   const firstDay = new Date(viewYear, viewMonth, 1)
-  const lastDay = new Date(viewYear, viewMonth + 1, 0)
-  const startDow = (firstDay.getDay() + 6) % 7 // Mon=0
-  const daysInMonth = lastDay.getDate()
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const startDow = (firstDay.getDay() + 6) % 7
 
   const cells: (number | null)[] = []
   for (let i = 0; i < startDow; i++) cells.push(null)
@@ -513,6 +587,9 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
 
   const today = todayStr()
 
+  const selectedEvents = selectedDay ? events.filter(e => e.start_date <= selectedDay && e.end_date >= selectedDay) : []
+  const getName = (id: string) => members.find(m => m.id === id)?.name || '?'
+
   async function handleSubmit() {
     if (!form.title.trim() || !form.memberId || form.end < form.start) return
     onAdd(form.title, form.memberId, form.start, form.end)
@@ -520,7 +597,6 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
     setForm(f => ({ ...f, title: '', start: todayStr(), end: todayStr() }))
   }
 
-  // Upcoming events list (from today)
   const upcoming = events.filter(e => e.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date))
 
   return (
@@ -529,73 +605,99 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
       <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
         {/* Month nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <button onClick={prevMonth} style={{ background: C.primaryLight, border: 'none', borderRadius: 8, padding: '6px 12px', color: C.primary, fontWeight: 700, cursor: 'pointer', fontSize: 16 }}>‹</button>
-          <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{formatMonthYear(viewYear, viewMonth)}</div>
-          <button onClick={nextMonth} style={{ background: C.primaryLight, border: 'none', borderRadius: 8, padding: '6px 12px', color: C.primary, fontWeight: 700, cursor: 'pointer', fontSize: 16 }}>›</button>
+          <button onClick={prevMonth} style={{ background: C.primaryLight, border: 'none', borderRadius: 8, padding: '6px 14px', color: C.primary, fontWeight: 700, cursor: 'pointer', fontSize: 18 }}>‹</button>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{formatMonthYear(viewYear, viewMonth)}</div>
+          <button onClick={nextMonth} style={{ background: C.primaryLight, border: 'none', borderRadius: 8, padding: '6px 14px', color: C.primary, fontWeight: 700, cursor: 'pointer', fontSize: 18 }}>›</button>
         </div>
 
-        {/* Days of week */}
+        {/* Days of week header */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
           {['L','M','M','J','V','S','D'].map((d, i) => (
-            <div key={i} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: C.muted, padding: '4px 0' }}>{d}</div>
+            <div key={i} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: C.muted, paddingBottom: 6 }}>{d}</div>
           ))}
         </div>
 
-        {/* Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+        {/* Grid — compact cells with dots only */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
           {cells.map((day, i) => {
             if (!day) return <div key={i} />
             const ds = dayStr(day)
             const isToday = ds === today
+            const isSelected = ds === selectedDay
             const dayEvents = eventsOnDay(day)
             return (
-              <div key={i} style={{
-                minHeight: 48, borderRadius: 8, padding: '3px 2px',
-                background: isToday ? C.primaryLight : 'transparent',
-                border: isToday ? `1px solid ${C.primary}` : '1px solid transparent',
-              }}>
-                <div style={{ textAlign: 'center', fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? C.primary : C.text, marginBottom: 2 }}>{day}</div>
-                {dayEvents.slice(0, 2).map(e => (
-                  <div key={e.id} style={{
-                    background: getMemberColor(members, e.member_id),
-                    borderRadius: 3, padding: '1px 3px', marginBottom: 1,
-                    fontSize: 9, color: 'white', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                  }}>{e.title}</div>
-                ))}
-                {dayEvents.length > 2 && <div style={{ fontSize: 9, color: C.muted, textAlign: 'center' }}>+{dayEvents.length - 2}</div>}
-              </div>
+              <button
+                key={i}
+                onClick={() => setSelectedDay(isSelected ? null : ds)}
+                style={{
+                  minHeight: 38, borderRadius: 8, padding: '4px 2px',
+                  background: isSelected ? C.primary : isToday ? C.primaryLight : 'transparent',
+                  border: isSelected ? `none` : isToday ? `1px solid ${C.primary}` : '1px solid transparent',
+                  cursor: dayEvents.length > 0 ? 'pointer' : 'default',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: isToday || isSelected ? 700 : 400, color: isSelected ? 'white' : isToday ? C.primary : C.text }}>
+                  {day}
+                </span>
+                {/* Colored dots for events */}
+                {dayEvents.length > 0 && (
+                  <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {dayEvents.slice(0, 3).map((e, ei) => (
+                      <div key={ei} style={{ width: 6, height: 6, borderRadius: '50%', background: isSelected ? 'rgba(255,255,255,0.8)' : getMemberColor(members, e.member_id) }} />
+                    ))}
+                  </div>
+                )}
+              </button>
             )
           })}
         </div>
 
-        {/* Legend */}
-        {members.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-            {members.map((m, i) => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: MEMBER_PALETTE[i % MEMBER_PALETTE.length] }} />
-                <span style={{ fontSize: 11, color: C.muted }}>{m.name}</span>
-              </div>
-            ))}
+        {/* Selected day detail */}
+        {selectedDay && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{formatDay(selectedDay)}</div>
+            {selectedEvents.length === 0 ? (
+              <div style={{ color: C.muted, fontSize: 13 }}>Aucun événement ce jour.</div>
+            ) : (
+              selectedEvents.map(e => (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: getMemberColor(members, e.member_id), flexShrink: 0 }} />
+                  <div style={{ flex: 1, fontSize: 14 }}>
+                    <strong>{e.title}</strong>
+                    <span style={{ color: C.muted, fontSize: 12 }}> · {getName(e.member_id)}</span>
+                    {e.start_date !== e.end_date && <span style={{ color: C.muted, fontSize: 12 }}> · jusqu'au {formatDay(e.end_date, true)}</span>}
+                  </div>
+                  <button onClick={() => onDelete(e)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
+                </div>
+              ))
+            )}
           </div>
         )}
+
+        {/* Legend */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+          {members.map((m, i) => (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: MEMBER_PALETTE[i % MEMBER_PALETTE.length] }} />
+              <span style={{ fontSize: 11, color: C.muted }}>{m.name}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Add event button */}
+      {/* Add button */}
       <button onClick={() => setShowForm(s => !s)} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 12, padding: '12px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
         {showForm ? '✕ Annuler' : '+ Ajouter un événement'}
       </button>
 
-      {/* Add event form */}
       {showForm && (
         <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Nouvel événement</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input
-              value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Titre (ex: Voyage à Rome, Chez Alix…)"
-              style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }}
-            />
+            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="Titre (ex : Voyage à Rome, Chez Alix…)"
+              style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }} />
             <select value={form.memberId} onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}
               style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14, background: 'white' }}>
               <option value="">— Qui ?</option>
@@ -621,34 +723,30 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
         </div>
       )}
 
-      {/* Upcoming events list */}
+      {/* Upcoming list */}
       {upcoming.length > 0 && (
         <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>À venir</div>
           {upcoming.map(e => {
             const color = getMemberColor(members, e.member_id)
-            const name = members.find(m => m.id === e.member_id)?.name || '?'
             const isOngoing = e.start_date <= today && e.end_date >= today
             return (
               <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
-                <div style={{ width: 4, borderRadius: 2, alignSelf: 'stretch', background: color, flexShrink: 0 }} />
+                <div style={{ width: 4, borderRadius: 2, alignSelf: 'stretch', minHeight: 32, background: color, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
                   <div style={{ fontSize: 12, color: C.muted }}>
-                    {name} · {e.start_date === e.end_date ? formatDay(e.start_date, { short: true }) : `${formatDay(e.start_date, { short: true })} → ${formatDay(e.end_date, { short: true })}`}
+                    {getName(e.member_id)} · {e.start_date === e.end_date ? formatDay(e.start_date, true) : `${formatDay(e.start_date, true)} → ${formatDay(e.end_date, true)}`}
                     {isOngoing && <span style={{ marginLeft: 6, background: color, color: 'white', borderRadius: 4, padding: '1px 5px', fontSize: 10 }}>En cours</span>}
                   </div>
                 </div>
-                <button onClick={() => onDelete(e)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18, flexShrink: 0 }}>×</button>
+                <button onClick={() => onDelete(e)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
               </div>
             )
           })}
         </div>
       )}
-
-      {upcoming.length === 0 && !showForm && (
-        <div style={{ textAlign: 'center', color: C.muted, padding: 24 }}>Aucun événement à venir 📅</div>
-      )}
+      {upcoming.length === 0 && !showForm && <div style={{ textAlign: 'center', color: C.muted, padding: 24 }}>Aucun événement à venir 📅</div>}
     </div>
   )
 }
@@ -672,7 +770,7 @@ function CorveesTab({ members, chores, currentMember, onAdd, onClaim, onUnclaim,
             onKeyDown={e => { if (e.key === 'Enter') { onAdd(newChore); setNewChore('') } }}
             placeholder="Ajouter une tâche…"
             style={{ flex: 1, padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }} />
-          <button onClick={() => { onAdd(newChore); setNewChore('') }} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 600, cursor: 'pointer' }}>+</button>
+          <button onClick={() => { onAdd(newChore); setNewChore('') }} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 18 }}>+</button>
         </div>
       </div>
       {pending.length > 0 && (
@@ -712,7 +810,7 @@ function CorveesTab({ members, chores, currentMember, onAdd, onClaim, onUnclaim,
           ))}
         </div>
       )}
-      {pending.length === 0 && done.length === 0 && <div style={{ textAlign: 'center', color: C.muted, padding: 32 }}>Aucune tâche pour l'instant 🎉</div>}
+      {pending.length === 0 && done.length === 0 && <div style={{ textAlign: 'center', color: C.muted, padding: 32 }}>Aucune tâche 🎉</div>}
     </div>
   )
 }
@@ -772,7 +870,7 @@ function CoursesTab({ members, items, currentMember, onAdd, onToggle, onDelete, 
             onKeyDown={e => { if (e.key === 'Enter') { onAdd(newItem); setNewItem('') } }}
             placeholder="Ajouter un article…"
             style={{ flex: 1, padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }} />
-          <button onClick={() => { onAdd(newItem); setNewItem('') }} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 600, cursor: 'pointer' }}>+</button>
+          <button onClick={() => { onAdd(newItem); setNewItem('') }} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 18 }}>+</button>
         </div>
         <button onClick={() => fileRef.current?.click()} style={{ width: '100%', background: C.primaryLight, color: C.primary, border: `1px dashed ${C.primary}`, borderRadius: 10, padding: '10px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           📷 Photographier une liste manuscrite
@@ -864,45 +962,34 @@ function CoursesTab({ members, items, currentMember, onAdd, onToggle, onDelete, 
 
 // ── Corse Tab ──────────────────────────────────────────
 function CorseTab({ tasks, onToggle, onAdd, onDelete, onReset }: {
-  tasks: CorseTask[]; onToggle: (t: CorseTask) => void
+  tasks: CorseTask[]
+  onToggle: (t: CorseTask) => void
   onAdd: (n: string, c: 'ouvrir' | 'fermer') => void
-  onDelete: (t: CorseTask) => void; onReset: (c: 'ouvrir' | 'fermer') => void
+  onDelete: (t: CorseTask) => void
+  onReset: (c: 'ouvrir' | 'fermer') => void
 }) {
-  const [newOuvrir, setNewOuvrir] = useState('')
-  const [newFermer, setNewFermer] = useState('')
-
-  function Section({ tasks, category, newVal, setNew, title, color }: { tasks: CorseTask[]; category: 'ouvrir' | 'fermer'; newVal: string; setNew: (v: string) => void; title: string; color: string }) {
-    const done = tasks.filter(t => t.is_done).length
-    const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
-    return (
-      <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color }}>{title}</div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.muted, marginBottom: 4 }}><span>{done}/{tasks.length} faits</span><span>{pct}%</span></div>
-          <div style={{ background: C.border, borderRadius: 4, height: 6 }}>
-            <div style={{ background: pct === 100 ? C.green : C.primary, width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
-          </div>
-        </div>
-        {tasks.map(task => (
-          <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
-            <button onClick={() => onToggle(task)} style={{ width: 26, height: 26, borderRadius: 6, border: `2px solid ${task.is_done ? C.green : C.border}`, background: task.is_done ? C.green : 'none', color: 'white', cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>{task.is_done ? '✓' : ''}</button>
-            <div style={{ flex: 1, textDecoration: task.is_done ? 'line-through' : 'none', color: task.is_done ? C.muted : C.text }}>{task.name}</div>
-            <button onClick={() => onDelete(task)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input value={newVal} onChange={e => setNew(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { onAdd(newVal, category); setNew('') } }} placeholder="Ajouter…" style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 13 }} />
-          <button onClick={() => { onAdd(newVal, category); setNew('') }} style={{ background: C.primary, color: 'white', border: 'none', borderRadius: 10, padding: '9px 14px', fontWeight: 600, cursor: 'pointer' }}>+</button>
-        </div>
-        {tasks.some(t => t.is_done) && <button onClick={() => onReset(category)} style={{ width: '100%', marginTop: 8, background: 'none', border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px', color: C.muted, fontSize: 13, cursor: 'pointer' }}>🔄 Réinitialiser</button>}
-      </div>
-    )
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Section tasks={tasks.filter(t => t.category === 'ouvrir')} category="ouvrir" newVal={newOuvrir} setNew={setNewOuvrir} title="🌊 Ouverture" color={C.primary} />
-      <Section tasks={tasks.filter(t => t.category === 'fermer')} category="fermer" newVal={newFermer} setNew={setNewFermer} title="🔒 Fermeture" color={C.purple} />
+      <CorseSection
+        tasks={tasks.filter(t => t.category === 'ouvrir')}
+        category="ouvrir"
+        title="🌊 À faire en arrivant"
+        color={C.primary}
+        onToggle={onToggle}
+        onAdd={onAdd}
+        onDelete={onDelete}
+        onReset={onReset}
+      />
+      <CorseSection
+        tasks={tasks.filter(t => t.category === 'fermer')}
+        category="fermer"
+        title="🔒 À faire en partant"
+        color={C.purple}
+        onToggle={onToggle}
+        onAdd={onAdd}
+        onDelete={onDelete}
+        onReset={onReset}
+      />
     </div>
   )
 }
