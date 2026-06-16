@@ -15,7 +15,7 @@ type DinnerResponse = { id: string; member_id: string; date: string; status: Din
 type Chore = { id: string; name: string; assigned_to_id: string | null; is_done: boolean; created_at: string }
 type ShoppingItem = { id: string; name: string; added_by_id: string | null; is_done: boolean; created_at: string; image_url: string | null }
 type CorseTask = { id: string; name: string; category: 'ouvrir' | 'fermer'; is_done: boolean; sort_order: number }
-type FamilyEvent = { id: string; title: string; member_id: string; start_date: string; end_date: string; created_at: string }
+type FamilyEvent = { id: string; title: string; member_ids: string[]; start_date: string; end_date: string; created_at: string }
 type TabId = 'presence' | 'agenda' | 'courses' | 'corvees' | 'poubelles' | 'corse'
 
 // ── Colors ─────────────────────────────────────────────
@@ -294,12 +294,12 @@ export default function Home() {
   }
 
   // ── Family Events ──────────────────────────────────────
-  async function addFamilyEvent(title: string, memberId: string, startDate: string, endDate: string) {
-    if (!title.trim()) return
+  async function addFamilyEvent(title: string, memberIds: string[], startDate: string, endDate: string) {
+    if (!title.trim() || memberIds.length === 0) return
     const tempId = 'temp-' + Date.now()
-    const temp: FamilyEvent = { id: tempId, title: title.trim(), member_id: memberId, start_date: startDate, end_date: endDate, created_at: new Date().toISOString() }
+    const temp: FamilyEvent = { id: tempId, title: title.trim(), member_ids: memberIds, start_date: startDate, end_date: endDate, created_at: new Date().toISOString() }
     setFamilyEvents(prev => [...prev, temp].sort((a, b) => a.start_date.localeCompare(b.start_date)))
-    const { data, error } = await supabase.from('family_events').insert({ title: title.trim(), member_id: memberId, start_date: startDate, end_date: endDate }).select().single()
+    const { data, error } = await supabase.from('family_events').insert({ title: title.trim(), member_ids: memberIds, start_date: startDate, end_date: endDate }).select().single()
     if (error) setFamilyEvents(prev => prev.filter(e => e.id !== tempId))
     else if (data) setFamilyEvents(prev => prev.map(e => e.id === tempId ? data : e))
   }
@@ -426,6 +426,11 @@ function PresenceTab({ members, allMembers, dinnerResponses, familyEvents, curre
   const today = todayStr()
   const awayToday = familyEvents.filter(e => e.start_date <= today && e.end_date >= today)
   const getName = (id: string) => allMembers.find(m => m.id === id)?.name || '?'
+  const activeIds = allMembers.filter(m => m.is_active).map(m => m.id)
+  const namesForEvent = (e: FamilyEvent) =>
+    activeIds.length > 0 && e.member_ids.length >= activeIds.length && activeIds.every(id => e.member_ids.includes(id))
+      ? 'Toute la famille'
+      : e.member_ids.map(getName).join(', ')
   const todayResponses = dinnerResponses.filter(r => r.date === today)
   const comingTonight = todayResponses.filter(r => r.status === 'oui' || r.status === 'assiette').length
 
@@ -444,7 +449,7 @@ function PresenceTab({ members, allMembers, dinnerResponses, familyEvents, curre
         </div>
         {awayToday.length > 0 && (
           <div style={{ fontSize: 13, opacity: 0.85 }}>
-            ✈️ En voyage : {awayToday.map(e => `${getName(e.member_id)} — ${e.title}`).join(' · ')}
+            ✈️ En voyage : {awayToday.map(e => `${namesForEvent(e)} — ${e.title}`).join(' · ')}
           </div>
         )}
         {todayResponses.filter(r => r.status === 'assiette').length > 0 && (
@@ -553,7 +558,7 @@ function DayCard({ dateStr, isToday, members, allMembers, dinnerResponses, curre
 // ── Agenda Tab ─────────────────────────────────────────
 function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
   members: Member[]; events: FamilyEvent[]; currentMember: Member | null
-  onAdd: (title: string, memberId: string, start: string, end: string) => void
+  onAdd: (title: string, memberIds: string[], start: string, end: string) => void
   onDelete: (e: FamilyEvent) => void
 }) {
   const now = new Date()
@@ -561,9 +566,22 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
   const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [showForm, setShowForm] = useState(false)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
-  const [form, setForm] = useState({ title: '', memberId: currentMember?.id || '', start: todayStr(), end: todayStr() })
+  const [form, setForm] = useState<{ title: string; memberIds: string[]; start: string; end: string }>({
+    title: '', memberIds: currentMember ? [currentMember.id] : [], start: todayStr(), end: todayStr(),
+  })
 
-  useEffect(() => { if (currentMember) setForm(f => ({ ...f, memberId: currentMember.id })) }, [currentMember])
+  useEffect(() => { if (currentMember) setForm(f => (f.memberIds.length === 0 ? { ...f, memberIds: [currentMember.id] } : f)) }, [currentMember])
+
+  const allIds = members.map(m => m.id)
+  const isFamilyEvent = (e: FamilyEvent) => allIds.length > 0 && e.member_ids.length >= allIds.length && allIds.every(id => e.member_ids.includes(id))
+  const isAllSelected = allIds.length > 0 && form.memberIds.length === allIds.length && allIds.every(id => form.memberIds.includes(id))
+
+  function toggleMember(id: string) {
+    setForm(f => f.memberIds.includes(id) ? { ...f, memberIds: f.memberIds.filter(x => x !== id) } : { ...f, memberIds: [...f.memberIds, id] })
+  }
+  function toggleAllFamily() {
+    setForm(f => isAllSelected ? { ...f, memberIds: currentMember ? [currentMember.id] : [] } : { ...f, memberIds: allIds })
+  }
 
   function prevMonth() { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) } else setViewMonth(m => m - 1) }
   function nextMonth() { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0) } else setViewMonth(m => m + 1) }
@@ -589,10 +607,11 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
 
   const selectedEvents = selectedDay ? events.filter(e => e.start_date <= selectedDay && e.end_date >= selectedDay) : []
   const getName = (id: string) => members.find(m => m.id === id)?.name || '?'
+  const namesForEvent = (e: FamilyEvent) => isFamilyEvent(e) ? 'Toute la famille' : e.member_ids.map(getName).join(', ')
 
   async function handleSubmit() {
-    if (!form.title.trim() || !form.memberId || form.end < form.start) return
-    onAdd(form.title, form.memberId, form.start, form.end)
+    if (!form.title.trim() || form.memberIds.length === 0 || form.end < form.start) return
+    onAdd(form.title, form.memberIds, form.start, form.end)
     setShowForm(false)
     setForm(f => ({ ...f, title: '', start: todayStr(), end: todayStr() }))
   }
@@ -617,7 +636,7 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
           ))}
         </div>
 
-        {/* Grid — compact cells with dots only */}
+        {/* Grid — compact cells with dots/oval only */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
           {cells.map((day, i) => {
             if (!day) return <div key={i} />
@@ -625,6 +644,12 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
             const isToday = ds === today
             const isSelected = ds === selectedDay
             const dayEvents = eventsOnDay(day)
+            const familyHere = dayEvents.some(isFamilyEvent)
+            // Dots for individual (non-family) events: one dot per distinct member involved
+            const individualMemberIds = Array.from(new Set(
+              dayEvents.filter(e => !isFamilyEvent(e)).flatMap(e => e.member_ids)
+            ))
+            const dotColor = isSelected ? 'rgba(255,255,255,0.85)' : undefined
             return (
               <button
                 key={i}
@@ -640,11 +665,13 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
                 <span style={{ fontSize: 13, fontWeight: isToday || isSelected ? 700 : 400, color: isSelected ? 'white' : isToday ? C.primary : C.text }}>
                   {day}
                 </span>
-                {/* Colored dots for events */}
-                {dayEvents.length > 0 && (
-                  <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {dayEvents.slice(0, 3).map((e, ei) => (
-                      <div key={ei} style={{ width: 6, height: 6, borderRadius: '50%', background: isSelected ? 'rgba(255,255,255,0.8)' : getMemberColor(members, e.member_id) }} />
+                {(familyHere || individualMemberIds.length > 0) && (
+                  <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+                    {familyHere && (
+                      <div style={{ width: 14, height: 6, borderRadius: 4, background: dotColor || C.yellow }} />
+                    )}
+                    {individualMemberIds.slice(0, 3).map((mid, ei) => (
+                      <div key={ei} style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor || getMemberColor(members, mid) }} />
                     ))}
                   </div>
                 )}
@@ -660,17 +687,24 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
             {selectedEvents.length === 0 ? (
               <div style={{ color: C.muted, fontSize: 13 }}>Aucun événement ce jour.</div>
             ) : (
-              selectedEvents.map(e => (
-                <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: getMemberColor(members, e.member_id), flexShrink: 0 }} />
-                  <div style={{ flex: 1, fontSize: 14 }}>
-                    <strong>{e.title}</strong>
-                    <span style={{ color: C.muted, fontSize: 12 }}> · {getName(e.member_id)}</span>
-                    {e.start_date !== e.end_date && <span style={{ color: C.muted, fontSize: 12 }}> · jusqu'au {formatDay(e.end_date, true)}</span>}
+              selectedEvents.map(e => {
+                const fam = isFamilyEvent(e)
+                return (
+                  <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    {fam ? (
+                      <div style={{ width: 16, height: 8, borderRadius: 5, background: C.yellow, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: getMemberColor(members, e.member_ids[0]), flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, fontSize: 14 }}>
+                      <strong>{e.title}</strong>
+                      <span style={{ color: C.muted, fontSize: 12 }}> · {namesForEvent(e)}</span>
+                      {e.start_date !== e.end_date && <span style={{ color: C.muted, fontSize: 12 }}> · jusqu'au {formatDay(e.end_date, true)}</span>}
+                    </div>
+                    <button onClick={() => onDelete(e)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
                   </div>
-                  <button onClick={() => onDelete(e)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 18 }}>×</button>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         )}
@@ -683,6 +717,10 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
               <span style={{ fontSize: 11, color: C.muted }}>{m.name}</span>
             </div>
           ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ width: 14, height: 6, borderRadius: 4, background: C.yellow }} />
+            <span style={{ fontSize: 11, color: C.muted }}>Toute la famille</span>
+          </div>
         </div>
       </div>
 
@@ -698,11 +736,33 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
             <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               placeholder="Titre (ex : Voyage à Rome, Chez Alix…)"
               style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14 }} />
-            <select value={form.memberId} onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}
-              style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14, background: 'white' }}>
-              <option value="">— Qui ?</option>
-              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: C.muted }}>Qui ?</div>
+                <button onClick={toggleAllFamily} style={{
+                  background: isAllSelected ? C.yellow : C.yellowLight, color: isAllSelected ? 'white' : '#8a7000',
+                  border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}>{isAllSelected ? '✓ Toute la famille' : 'Toute la famille'}</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {members.map((m, i) => {
+                  const checked = form.memberIds.includes(m.id)
+                  return (
+                    <button key={m.id} onClick={() => toggleMember(m.id)} style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: checked ? MEMBER_PALETTE[i % MEMBER_PALETTE.length] + '22' : '#F5F5F5',
+                      border: `1.5px solid ${checked ? MEMBER_PALETTE[i % MEMBER_PALETTE.length] : C.border}`,
+                      borderRadius: 20, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      color: checked ? MEMBER_PALETTE[i % MEMBER_PALETTE.length] : C.muted,
+                    }}>
+                      <span>{checked ? '✓' : ''}</span>{m.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Du</div>
@@ -715,8 +775,8 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
                   style={{ width: '100%', padding: '10px 8px', border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 14, boxSizing: 'border-box' }} />
               </div>
             </div>
-            <button onClick={handleSubmit} disabled={!form.title.trim() || !form.memberId}
-              style={{ background: form.title.trim() && form.memberId ? C.green : '#ccc', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontWeight: 700, fontSize: 14, cursor: form.title.trim() && form.memberId ? 'pointer' : 'default' }}>
+            <button onClick={handleSubmit} disabled={!form.title.trim() || form.memberIds.length === 0}
+              style={{ background: form.title.trim() && form.memberIds.length > 0 ? C.green : '#ccc', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontWeight: 700, fontSize: 14, cursor: form.title.trim() && form.memberIds.length > 0 ? 'pointer' : 'default' }}>
               ✓ Ajouter
             </button>
           </div>
@@ -728,7 +788,8 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
         <div style={{ background: C.card, borderRadius: 16, padding: 16, border: `1px solid ${C.border}` }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>À venir</div>
           {upcoming.map(e => {
-            const color = getMemberColor(members, e.member_id)
+            const fam = isFamilyEvent(e)
+            const color = fam ? C.yellow : getMemberColor(members, e.member_ids[0])
             const isOngoing = e.start_date <= today && e.end_date >= today
             return (
               <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -736,7 +797,7 @@ function AgendaTab({ members, events, currentMember, onAdd, onDelete }: {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
                   <div style={{ fontSize: 12, color: C.muted }}>
-                    {getName(e.member_id)} · {e.start_date === e.end_date ? formatDay(e.start_date, true) : `${formatDay(e.start_date, true)} → ${formatDay(e.end_date, true)}`}
+                    {namesForEvent(e)} · {e.start_date === e.end_date ? formatDay(e.start_date, true) : `${formatDay(e.start_date, true)} → ${formatDay(e.end_date, true)}`}
                     {isOngoing && <span style={{ marginLeft: 6, background: color, color: 'white', borderRadius: 4, padding: '1px 5px', fontSize: 10 }}>En cours</span>}
                   </div>
                 </div>
